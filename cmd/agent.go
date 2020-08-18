@@ -1,18 +1,17 @@
 package cmd
 
 import (
-	"context"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/koolay/sqlboss/pkg/agent"
-	"github.com/koolay/sqlboss/pkg/conf"
+	"github.com/koolay/sqlboss/pkg/lineage"
 	"github.com/koolay/sqlboss/pkg/message"
-	"github.com/koolay/sqlboss/pkg/worker"
-	"github.com/sirupsen/logrus"
+	"github.com/koolay/sqlboss/pkg/proto"
+	"github.com/koolay/sqlboss/pkg/store"
 	cli "gopkg.in/urfave/cli.v2"
 )
 
@@ -26,6 +25,11 @@ func newAgentCmd() *cli.Command {
 				Aliases: []string{"c"},
 				Value:   defaultConfigFileFolder,
 				Usage:   "path of config file",
+			},
+			&cli.StringFlag{
+				Name:  "log-level",
+				Value: "INFO",
+				Usage: "log level",
 			},
 		},
 		Action: serveAction,
@@ -45,20 +49,48 @@ func serveAction(c *cli.Context) error {
 	log.Println(cfg)
 
 	log.Println("start worker")
+	ctx := c.Context
 
-	go startWorker(context.Background(), cfg, logger)
+	cqrsMarshaler := cqrs.JSONMarshaler{}
+	cqrsServer, err := message.NewCQRSServer(logger.WithContext(ctx), cqrsMarshaler)
+	if err != nil {
+		return err
+	}
+
+	if err = cqrsServer.Setup([]message.CommandHandlerGenerator{
+		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.CommandHandler {
+			return agent.NewSQLCommandHandler(eb)
+		},
+	},
+
+		[]message.EventHandlerGenerator{
+			func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
+				return store.StoreOnSQLEventHandler{}
+			},
+			func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
+				return lineage.LineageOnSQLEventHandler{}
+			},
+		}); err != nil {
+		return err
+	}
+
+	commandBus := cqrsServer.GetCommandBus()
 
 	go func() {
-		pub, err := agent.NewPublisher(cfg, message.NewPubSub())
-		if err != nil {
-			log.Fatal(err)
+		if serr := cqrsServer.Start(); serr != nil {
+			logger.Fatal(serr)
 		}
+	}()
 
+	go func() {
 		count := 0
+		time.Sleep(1 * time.Second)
 		for {
 			log.Println("publish message")
 			count++
-			if perr := pub.Publish(cfg.Stream.Topic, []byte(fmt.Sprintf("hello, %d", count))); perr != nil {
+
+			data := &proto.SqlCommand{}
+			if perr := commandBus.Send(ctx, data); perr != nil {
 				logger.WithError(perr).Error("failed to pushlish")
 			}
 
@@ -72,15 +104,4 @@ func serveAction(c *cli.Context) error {
 	<-quit
 	log.Println("Shutdown Service ...")
 	return nil
-}
-
-func startWorker(ctx context.Context, cfg *conf.Config, logger *logrus.Logger) {
-	wk := worker.NewWorker(cfg, message.NewPubSub(), logger)
-	if err := wk.Setup(); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := wk.Run(ctx); err != nil {
-		log.Fatal(err)
-	}
 }

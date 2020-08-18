@@ -21,3 +21,4 @@ app.config
 .DS_Store
 *.pprof
 vendor/
+__debug_bin
