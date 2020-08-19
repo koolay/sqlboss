@@ -8,15 +8,16 @@ type Connection struct {
 	Database string
 }
 
-type Config struct {
+type MysqlServerConfig struct {
+	Version          string
 	Addr             string
 	User             string
 	Password         string
 	TargetConnection Connection
 }
 
-func DefaultConfig() Config {
-	return Config{
+func DefaultConfig() MysqlServerConfig {
+	return MysqlServerConfig{
 		Addr:     "0.0.0.0:3306",
 		User:     "root",
 		Password: "dev",

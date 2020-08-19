@@ -2,14 +2,21 @@ package lineage
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/koolay/sqlboss/pkg/proto"
+	"github.com/sirupsen/logrus"
 )
 
 // LineageOnSQLEventHandler sql命令事件处理, 血缘分析
 type LineageOnSQLEventHandler struct {
+	logger *logrus.Entry
 	// storager Storager
+}
+
+func NewLineageOnSQLEventHandler(logger *logrus.Entry) LineageOnSQLEventHandler {
+	return LineageOnSQLEventHandler{
+		logger: logger.WithField("name", "LineageOnSQLEventHandler"),
+	}
 }
 
 func (s LineageOnSQLEventHandler) HandlerName() string {
@@ -24,7 +31,6 @@ func (LineageOnSQLEventHandler) NewEvent() interface{} {
 func (s LineageOnSQLEventHandler) Handle(ctx context.Context, event interface{}) error {
 	data := event.(*proto.SqlCommand)
 	// 解析 event.SQL, 生成血缘RDF数据
-	fmt.Println("received sql command")
-	fmt.Println("LineageOnSQLEventHandler", data)
+	s.logger.WithField("sql", data.SQL).Info("received sql command")
 	return nil
 }

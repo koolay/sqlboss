@@ -1,18 +1,27 @@
 package cmd
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
-	"time"
 
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
-	"github.com/koolay/sqlboss/pkg/agent"
 	"github.com/koolay/sqlboss/pkg/lineage"
+	"github.com/koolay/sqlboss/pkg/logging"
 	"github.com/koolay/sqlboss/pkg/message"
-	"github.com/koolay/sqlboss/pkg/proto"
+	"github.com/koolay/sqlboss/pkg/proxy"
 	"github.com/koolay/sqlboss/pkg/store"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	cli "gopkg.in/urfave/cli.v2"
+)
+
+const (
+	mysqlVersion    = "5.6"
+	defaultAddr     = "127.0.0.1:3309"
+	defaultUser     = "root"
+	defaultPassword = "123"
 )
 
 func newAgentCmd() *cli.Command {
@@ -38,65 +47,78 @@ func newAgentCmd() *cli.Command {
 	return serveCmd
 }
 
+func initCQRSServer(logger *logrus.Entry) (*message.CQRSServer, error) {
+	cqrsMarshaler := cqrs.JSONMarshaler{}
+	cqrsServer, err := message.NewCQRSServer(logger, cqrsMarshaler)
+	if err != nil {
+		return nil, err
+	}
+
+	commandHandlerGenerators := []message.CommandHandlerGenerator{
+		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.CommandHandler {
+			return proxy.NewSQLCommandHandler(eb)
+		},
+	}
+	eventHandlerGenerators := []message.EventHandlerGenerator{
+		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
+			return store.NewStoreOnSQLEventHandler(logger)
+		},
+		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
+			return lineage.NewLineageOnSQLEventHandler(logger)
+		},
+	}
+
+	if err = cqrsServer.Setup(commandHandlerGenerators, eventHandlerGenerators); err != nil {
+		return nil, err
+	}
+
+	return cqrsServer, nil
+}
+
 func serveAction(c *cli.Context) error {
 	cfg, err := loadConfig(c)
 	if err != nil {
 		return err
 	}
 
-	logger := newLogger(c.String("log-level"))
+	logger := logging.NewLogger(c.String("log-level"))
 
-	log.Println(cfg)
-
-	log.Println("start worker")
-	ctx := c.Context
-
-	cqrsMarshaler := cqrs.JSONMarshaler{}
-	cqrsServer, err := message.NewCQRSServer(logger.WithContext(ctx), cqrsMarshaler)
+	cqrsServer, err := initCQRSServer(logger.WithContext(context.Background()))
 	if err != nil {
-		return err
-	}
-
-	if err = cqrsServer.Setup([]message.CommandHandlerGenerator{
-		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.CommandHandler {
-			return agent.NewSQLCommandHandler(eb)
-		},
-	},
-
-		[]message.EventHandlerGenerator{
-			func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
-				return store.StoreOnSQLEventHandler{}
-			},
-			func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
-				return lineage.LineageOnSQLEventHandler{}
-			},
-		}); err != nil {
-		return err
+		return errors.Wrap(err, "failed to setup cqrs server")
 	}
 
 	commandBus := cqrsServer.GetCommandBus()
+
+	mysqlServer, err := proxy.NewProxy(cfg, logger, &proxy.MysqlServerConfig{
+		Version:  mysqlVersion,
+		Addr:     defaultAddr,
+		User:     defaultUser,
+		Password: defaultPassword,
+		TargetConnection: proxy.Connection{
+			Host:     cfg.DB.Host,
+			Port:     cfg.DB.Port,
+			User:     cfg.DB.User,
+			Password: cfg.DB.Password,
+			Database: cfg.DB.Database,
+		},
+	}, commandBus)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to new proxy")
+	}
+
+	go func() {
+		log.Println("start mysql proxy server")
+		if serr := mysqlServer.Start(); serr != nil {
+			log.Fatal(serr)
+		}
+	}()
 
 	go func() {
 		if serr := cqrsServer.Start(); serr != nil {
 			logger.Fatal(serr)
 		}
-	}()
-
-	go func() {
-		count := 0
-		time.Sleep(1 * time.Second)
-		for {
-			log.Println("publish message")
-			count++
-
-			data := &proto.SqlCommand{}
-			if perr := commandBus.Send(ctx, data); perr != nil {
-				logger.WithError(perr).Error("failed to pushlish")
-			}
-
-			time.Sleep(1 * time.Second)
-		}
-
 	}()
 
 	quit := make(chan os.Signal, 1)

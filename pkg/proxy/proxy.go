@@ -6,29 +6,53 @@ import (
 	"net"
 	"sync"
 
+	"github.com/koolay/sqlboss/pkg/conf"
+	"github.com/koolay/sqlboss/pkg/message"
 	"github.com/pingcap/errors"
 	"github.com/siddontang/go-mysql/server"
 	"github.com/sirupsen/logrus"
 )
 
 type Proxy struct {
-	cfg          Config
+	cfg          *conf.Config
+	mysqlCfg     *MysqlServerConfig
 	logger       *logrus.Logger
-	ser          *ProxyServer
+	ser          *mysqlSession
 	handler      server.Handler
 	shutdown     bool
 	shutdownCh   chan struct{}
 	shutdownLock *sync.Mutex
+	commandBus   message.CommandBus
 }
 
-func NewProxy(cfg Config, logger *logrus.Logger, ser *ProxyServer, handler server.Handler) (*Proxy, error) {
+func NewProxy(cfg *conf.Config,
+	logger *logrus.Logger,
+	mysqlCfg *MysqlServerConfig,
+	commandBus message.CommandBus,
+) (*Proxy, error) {
+
+	sess := newMysqlSession(mysqlCfg.Version, mysqlCfg)
+	handler, err := newMysqlHandler(cfg,
+		Connection{
+			Host:     cfg.DB.Host,
+			Port:     cfg.DB.Port,
+			User:     cfg.DB.User,
+			Password: cfg.DB.Password,
+			Database: cfg.DB.Database,
+		}, commandBus, logger)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Proxy{
 		cfg:          cfg,
+		mysqlCfg:     mysqlCfg,
 		logger:       logger,
-		ser:          ser,
+		ser:          sess,
 		handler:      handler,
 		shutdownLock: &sync.Mutex{},
 		shutdownCh:   make(chan struct{}),
+		commandBus:   commandBus,
 	}, nil
 }
 
@@ -47,9 +71,10 @@ func (p *Proxy) Shutdown() error {
 }
 
 func (p *Proxy) Start() error {
-	listener, err := net.Listen("tcp", p.cfg.Addr)
+	log.Println("start listen", p.mysqlCfg.Addr)
+	listener, err := net.Listen("tcp", p.mysqlCfg.Addr)
 	if err != nil {
-		return errors.Wrapf(err, "failed to listen: %s", p.cfg.Addr)
+		return errors.Wrapf(err, "failed to listen: %s", p.mysqlCfg.Addr)
 	}
 
 	for {
@@ -70,7 +95,7 @@ func (p *Proxy) Start() error {
 
 func (p *Proxy) handleConn(conn net.Conn) {
 	log.Println("handleConn")
-	dbconn, err := p.ser.NewConnect(conn, p.handler)
+	dbconn, err := p.ser.newConnect(conn, p.handler)
 	if err != nil {
 		log.Printf("Connection error: %v", err)
 		return

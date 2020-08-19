@@ -1,8 +1,7 @@
-package agent
+package proxy
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ThreeDotsLabs/watermill/components/cqrs"
 	"github.com/koolay/sqlboss/pkg/proto"
@@ -29,6 +28,5 @@ func (b SQLCommandHandler) NewCommand() interface{} {
 
 func (b SQLCommandHandler) Handle(ctx context.Context, c interface{}) error {
 	cmd := c.(*proto.SqlCommand)
-	fmt.Println("received sql command", cmd)
 	return b.eventBus.Publish(ctx, cmd)
 }

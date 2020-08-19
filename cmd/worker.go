@@ -30,21 +30,6 @@ func newWorkerCmd() *cli.Command {
 }
 
 func handleWorkerCmd(c *cli.Context) error {
-	// cfg, err := loadConfig(c)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// logger := newLogger(c.String("log-level"))
-	// wk := worker.NewWorker(cfg, message.NewPubSub(), logger)
-	// if err := wk.Setup(); err != nil {
-	// 	return err
-	// }
-
-	// if err := wk.Run(c.Context); err != nil {
-	// 	return err
-	// }
-
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt)
 	<-quit

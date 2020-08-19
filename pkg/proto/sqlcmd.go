@@ -19,7 +19,7 @@ type LogMessage struct {
 	// PerformanceScore 性能分数
 	PerformanceScore float32 `json:"performance_score"`
 	// Duration sql执行间隔(秒),精确到毫秒
-	Duration int `json:"duration"`
+	Duration int64 `json:"duration"`
 	// 接收到sql的时间戳表示
 	Occtime int64 `json:"occtime"`
 }
@@ -32,8 +32,12 @@ type SqlCommand struct {
 	Env      string `json:"env"`
 	Database string `json:"database"`
 	SQL      string `json:"sql"`
-	// 接收到sql的时间戳表示
-	Occtime int64 `json:"occtime"`
 	// User db用户名
 	User string `json:"user"`
+
+	// Duration sql执行间隔(秒),精确到毫秒
+	Duration int64 `json:"duration"`
+
+	// 接收到sql的时间戳表示
+	Occtime int64 `json:"occtime"`
 }

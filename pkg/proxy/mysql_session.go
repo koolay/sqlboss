@@ -29,14 +29,14 @@ func (m *RemoteThrottleProvider) GetCredential(username string) (password string
 	return m.InMemoryProvider.GetCredential(username)
 }
 
-type ProxyServer struct {
-	s   *server.Server
-	cfg Config
+type mysqlSession struct {
+	s        *server.Server
+	mysqlCfg *MysqlServerConfig
 }
 
-func NewProxyServer(version string, cfg Config) *ProxyServer {
-	return &ProxyServer{
-		cfg: cfg,
+func newMysqlSession(version string, mysqlCfg *MysqlServerConfig) *mysqlSession {
+	return &mysqlSession{
+		mysqlCfg: mysqlCfg,
 		s: server.NewServer(version,
 			mysql.DEFAULT_COLLATION_ID,
 			mysql.AUTH_CACHING_SHA2_PASSWORD,
@@ -46,7 +46,7 @@ func NewProxyServer(version string, cfg Config) *ProxyServer {
 
 }
 
-func (s *ProxyServer) NewConnect(conn net.Conn, handler server.Handler) (*server.Conn, error) {
+func (s *mysqlSession) newConnect(conn net.Conn, handler server.Handler) (*server.Conn, error) {
 	ser := server.NewServer("5.7.28",
 		mysql.DEFAULT_COLLATION_ID,
 		mysql.AUTH_CACHING_SHA2_PASSWORD,
@@ -54,7 +54,7 @@ func (s *ProxyServer) NewConnect(conn net.Conn, handler server.Handler) (*server
 		tlsConf)
 
 	credentialProvider := &RemoteThrottleProvider{server.NewInMemoryProvider(), 10 + 50}
-	credentialProvider.AddUser(s.cfg.User, s.cfg.Password)
+	credentialProvider.AddUser(s.mysqlCfg.User, s.mysqlCfg.Password)
 	dbconn, err := server.NewCustomizedConn(conn, ser, credentialProvider, handler)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to new customizedConnection")

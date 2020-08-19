@@ -1,10 +1,14 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
 
+	"github.com/koolay/sqlboss/pkg/conf"
+	"github.com/koolay/sqlboss/pkg/message"
+	"github.com/koolay/sqlboss/pkg/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -13,12 +17,17 @@ import (
 )
 
 type MysqlHandler struct {
+	cfg        *conf.Config
 	logger     *logrus.Logger
 	conn       *client.Conn
 	statements map[int64]*client.Stmt
+	commandBus message.CommandBus
 }
 
-func NewMysqlHandler(targetConn Connection, logger *logrus.Logger) (*MysqlHandler, error) {
+func newMysqlHandler(cfg *conf.Config,
+	targetConn Connection,
+	commandBus message.CommandBus,
+	logger *logrus.Logger) (*MysqlHandler, error) {
 	conn, err := client.Connect(fmt.Sprintf("%s:%d", targetConn.Host, targetConn.Port),
 		targetConn.User,
 		targetConn.Password,
@@ -30,7 +39,9 @@ func NewMysqlHandler(targetConn Connection, logger *logrus.Logger) (*MysqlHandle
 
 	return &MysqlHandler{
 		logger:     logger,
+		commandBus: commandBus,
 		conn:       conn,
+		cfg:        cfg,
 		statements: make(map[int64]*client.Stmt),
 	}, nil
 }
@@ -40,9 +51,23 @@ func (h *MysqlHandler) UseDB(dbName string) error {
 }
 
 func (h *MysqlHandler) HandleQuery(query string) (*mysql.Result, error) {
-	h.logger.Debugf("HandleQuery, query: %s", query)
+	st := time.Now()
 	result, err := h.conn.Execute(query)
-	log.Println("HandleQuery DONE", query)
+	data := &proto.SqlCommand{
+		App:      h.cfg.App.Name,
+		Database: h.cfg.DB.Database,
+		User:     h.cfg.DB.User,
+		Env:      "dev",
+		SQL:      query,
+		Duration: time.Since(st).Milliseconds(),
+		Occtime:  st.Unix(),
+	}
+
+	if err := h.commandBus.Send(context.Background(), data); err != nil {
+		// ignore error and continue
+		h.logger.WithError(err).Error("failed to send commandBus")
+	}
+
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to handleQuery:%s", query)
 	}
