@@ -22,13 +22,12 @@ type Proxy struct {
 	shutdown     bool
 	shutdownCh   chan struct{}
 	shutdownLock *sync.Mutex
-	commandBus   message.CommandBus
 }
 
 func NewProxy(cfg *conf.Config,
 	logger *logrus.Logger,
 	mysqlCfg *MysqlServerConfig,
-	commandBus message.CommandBus,
+	eventBus message.EventBus,
 ) (*Proxy, error) {
 
 	sess := newMysqlSession(mysqlCfg.Version, mysqlCfg)
@@ -39,7 +38,7 @@ func NewProxy(cfg *conf.Config,
 			User:     cfg.DB.User,
 			Password: cfg.DB.Password,
 			Database: cfg.DB.Database,
-		}, commandBus, logger)
+		}, eventBus, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +51,6 @@ func NewProxy(cfg *conf.Config,
 		handler:      handler,
 		shutdownLock: &sync.Mutex{},
 		shutdownCh:   make(chan struct{}),
-		commandBus:   commandBus,
 	}, nil
 }
 

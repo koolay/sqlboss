@@ -8,7 +8,6 @@ import (
 
 	"github.com/koolay/sqlboss/pkg/conf"
 	"github.com/koolay/sqlboss/pkg/message"
-	"github.com/koolay/sqlboss/pkg/proto"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -21,12 +20,12 @@ type MysqlHandler struct {
 	logger     *logrus.Logger
 	conn       *client.Conn
 	statements map[int64]*client.Stmt
-	commandBus message.CommandBus
+	eventBus   message.EventBus
 }
 
 func newMysqlHandler(cfg *conf.Config,
 	targetConn Connection,
-	commandBus message.CommandBus,
+	eventBus message.EventBus,
 	logger *logrus.Logger) (*MysqlHandler, error) {
 	conn, err := client.Connect(fmt.Sprintf("%s:%d", targetConn.Host, targetConn.Port),
 		targetConn.User,
@@ -39,7 +38,7 @@ func newMysqlHandler(cfg *conf.Config,
 
 	return &MysqlHandler{
 		logger:     logger,
-		commandBus: commandBus,
+		eventBus:   eventBus,
 		conn:       conn,
 		cfg:        cfg,
 		statements: make(map[int64]*client.Stmt),
@@ -53,7 +52,7 @@ func (h *MysqlHandler) UseDB(dbName string) error {
 func (h *MysqlHandler) HandleQuery(query string) (*mysql.Result, error) {
 	st := time.Now()
 	result, err := h.conn.Execute(query)
-	data := &proto.SqlCommand{
+	data := &SqlCommand{
 		App:      h.cfg.App.Name,
 		Database: h.cfg.DB.Database,
 		User:     h.cfg.DB.User,
@@ -63,7 +62,7 @@ func (h *MysqlHandler) HandleQuery(query string) (*mysql.Result, error) {
 		Occtime:  st.Unix(),
 	}
 
-	if err := h.commandBus.Send(context.Background(), data); err != nil {
+	if err := h.eventBus.Publish(context.Background(), data); err != nil {
 		// ignore error and continue
 		h.logger.WithError(err).Error("failed to send commandBus")
 	}

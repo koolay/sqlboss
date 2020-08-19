@@ -1,14 +1,12 @@
 package store
 
-import "github.com/koolay/sqlboss/pkg/proto"
-
 type Storager interface {
-	Insert(data *proto.LogMessage) error
+	Insert(data *LogCommand) error
 }
 
 type LokiStorager struct {
 }
 
-func (lk LokiStorager) Insert(data *proto.LogMessage) error {
+func (lk LokiStorager) Insert(data *LogCommand) error {
 	return nil
 }

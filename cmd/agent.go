@@ -56,15 +56,16 @@ func initCQRSServer(logger *logrus.Entry) (*message.CQRSServer, error) {
 
 	commandHandlerGenerators := []message.CommandHandlerGenerator{
 		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.CommandHandler {
-			return proxy.NewSQLCommandHandler(eb)
+			return store.NewStoreCommandHandler(logger)
+		},
+
+		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.CommandHandler {
+			return lineage.NewLineageCommandHandler(logger)
 		},
 	}
 	eventHandlerGenerators := []message.EventHandlerGenerator{
 		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
-			return store.NewStoreOnSQLEventHandler(logger)
-		},
-		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
-			return lineage.NewLineageOnSQLEventHandler(logger)
+			return proxy.NewParseOnSQLEventHandler(logger, cb)
 		},
 	}
 
@@ -88,7 +89,7 @@ func serveAction(c *cli.Context) error {
 		return errors.Wrap(err, "failed to setup cqrs server")
 	}
 
-	commandBus := cqrsServer.GetCommandBus()
+	eventBus := cqrsServer.GetEventBus()
 
 	mysqlServer, err := proxy.NewProxy(cfg, logger, &proxy.MysqlServerConfig{
 		Version:  mysqlVersion,
@@ -102,7 +103,7 @@ func serveAction(c *cli.Context) error {
 			Password: cfg.DB.Password,
 			Database: cfg.DB.Database,
 		},
-	}, commandBus)
+	}, eventBus)
 
 	if err != nil {
 		return errors.Wrap(err, "failed to new proxy")
