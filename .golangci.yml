@@ -20,6 +20,7 @@ run:
   skip-files:
     - ".*\\.pb\\.go"
     - ".*\\.gen\\.go"
+    - "fingerprint.go"
 
 linters:
   enable-all: true

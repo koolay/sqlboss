@@ -5,6 +5,7 @@ import (
 
 	"github.com/koolay/sqlboss/pkg/lineage"
 	"github.com/koolay/sqlboss/pkg/message"
+	"github.com/koolay/sqlboss/pkg/parse/fingerprint"
 	"github.com/koolay/sqlboss/pkg/store"
 	"github.com/sirupsen/logrus"
 )
@@ -38,7 +39,19 @@ func (s ParseOnSQLEventHandler) Handle(ctx context.Context, event interface{}) e
 	s.logger.WithField("sql", data.SQL).Info("received sql command")
 
 	// 1. write log
-	logMsg := &store.LogCommand{}
+	logMsg := &store.LogCommand{
+		Env:              data.Env,
+		App:              data.App,
+		Database:         data.Database,
+		SQL:              data.SQL,
+		SqlFingerprint:   fingerprint.Fingerprint(data.SQL),
+		User:             data.User,
+		Duration:         data.Duration,
+		Occtime:          data.Occtime,
+		Table:            "",
+		Fields:           []string{},
+		PerformanceScore: 0.0,
+	}
 	if err := s.commandBus.Send(ctx, logMsg); err != nil {
 		return err
 	}
