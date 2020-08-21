@@ -10,10 +10,10 @@ import (
 	"github.com/koolay/sqlboss/pkg/lineage"
 	"github.com/koolay/sqlboss/pkg/logging"
 	"github.com/koolay/sqlboss/pkg/message"
+	"github.com/koolay/sqlboss/pkg/obs"
 	"github.com/koolay/sqlboss/pkg/proxy"
 	"github.com/koolay/sqlboss/pkg/store"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	cli "gopkg.in/urfave/cli.v2"
 )
 
@@ -47,7 +47,10 @@ func newAgentCmd() *cli.Command {
 	return serveCmd
 }
 
-func initCQRSServer(logger *logrus.Entry) (*message.CQRSServer, error) {
+func initCQRSServer(ctx context.Context) (*message.CQRSServer, error) {
+	logger := logging.LoggerFromContext(ctx)
+	obser := obs.TelemetryFromContext(ctx)
+
 	cqrsMarshaler := cqrs.JSONMarshaler{}
 	cqrsServer, err := message.NewCQRSServer(logger, cqrsMarshaler)
 	if err != nil {
@@ -65,7 +68,7 @@ func initCQRSServer(logger *logrus.Entry) (*message.CQRSServer, error) {
 	}
 	eventHandlerGenerators := []message.EventHandlerGenerator{
 		func(cb *cqrs.CommandBus, eb *cqrs.EventBus) cqrs.EventHandler {
-			return proxy.NewParseOnSQLEventHandler(logger, cb)
+			return proxy.NewParseOnSQLEventHandler(logger, cb, obser.Meter)
 		},
 	}
 
@@ -83,8 +86,22 @@ func serveAction(c *cli.Context) error {
 	}
 
 	logger := logging.NewLogger(c.String("log-level"))
+	logEntry := logger.WithContext(context.Background())
 
-	cqrsServer, err := initCQRSServer(logger.WithContext(context.Background()))
+	ctx := logging.WithLogger(c.Context, logEntry)
+
+	obser, err := obs.NewTelemetry(obs.Config{
+		ExporterPath: "/metrics",
+		ExportPort:   2222,
+	})
+
+	ctx = obs.WithTelemetry(ctx, obser)
+
+	if err != nil {
+		return errors.Wrap(err, "failed to new telemetry")
+	}
+
+	cqrsServer, err := initCQRSServer(ctx)
 	if err != nil {
 		return errors.Wrap(err, "failed to setup cqrs server")
 	}
@@ -108,6 +125,12 @@ func serveAction(c *cli.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to new proxy")
 	}
+
+	go func() {
+		if err := obser.Serve(); err != nil {
+			log.Fatalf("failed to serve metrics, %+v", err)
+		}
+	}()
 
 	go func() {
 		log.Println("start mysql proxy server")
