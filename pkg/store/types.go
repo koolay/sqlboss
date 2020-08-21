@@ -14,7 +14,7 @@ type LogCommand struct {
 	SqlFingerprint string `json:"sql_fingerprint"`
 	// User db用户名
 	User   string   `json:"user"`
-	Table  string   `json:"table"`
+	Tables []string `json:"tables"`
 	Fields []string `json:"fields"`
 	// PerformanceScore 性能分数
 	PerformanceScore float32 `json:"performance_score"`

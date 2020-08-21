@@ -66,10 +66,11 @@ func (s ParseOnSQLEventHandler) Handle(ctx context.Context, event interface{}) e
 		User:             data.User,
 		Duration:         data.Duration,
 		Occtime:          data.Occtime,
-		Table:            "",
+		Tables:           []string{},
 		Fields:           []string{},
 		PerformanceScore: 0.0,
 	}
+
 	if err := s.commandBus.Send(ctx, logMsg); err != nil {
 		return err
 	}
